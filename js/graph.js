@@ -1,107 +1,220 @@
-const dims = { height: 300, width: 300, radius: 150 };
-const cent = { x: dims.width / 2 + 5, y: dims.height / 2 + 5 };
+// DOM elements
+const btns = document.querySelectorAll("button");
+const form = document.querySelector("form");
+const formAct = document.querySelector("form span");
+const input = document.querySelector("#cycling");
+const error = document.querySelector(".error");
+
+var activity = "cycling";
+
+btns.forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    //get activity
+    activity = e.target.dataset.activity;
+    btns.forEach((btn) => btn.classList.remove("active"));
+    e.target.classList.add("active");
+
+    // set id of input field
+    input.setAttribute("id", activity);
+
+    formAct.textContent = activity;
+
+    // call the update function
+
+    update(data);
+  });
+});
+
+//form submit
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const distance = parseInt(input.value);
+  if (distance) {
+    db.collection("activities")
+      .add({
+        distance,
+        activity,
+        date: new Date().toString(),
+      })
+      .then(() => {
+        error.textContent = "";
+        input.value = "";
+      });
+  } else {
+    error.textContent = "Please enter a valid distance";
+  }
+});
+
+const margin = { top: 40, left: 100, right: 20, bottom: 50 };
+const graphWidth = 560 - margin.left - margin.right;
+const graphHeight = 400 - margin.top - margin.bottom;
 
 const svg = d3
   .select(".canvas")
   .append("svg")
-  .attr("width", dims.width + 150)
-  .attr("height", dims.height + 150);
+  .attr("width", graphWidth + margin.left + margin.right)
+  .attr("height", graphHeight + margin.top + margin.bottom);
 
 const graph = svg
   .append("g")
-  .attr("transform", `translate(${cent.x},${cent.y})`);
+  .attr("width", graphWidth)
+  .attr("height", graphHeight)
+  .attr("transform", `translate(${margin.left},${margin.top})`);
 
-const pie = d3
-  .pie()
-  .sort(null)
-  .value((d) => d.cost);
+// scales
 
-const arcPath = d3
-  .arc()
-  .outerRadius(dims.radius)
-  .innerRadius(dims.radius / 2);
+const x = d3.scaleTime().range([0, graphWidth]);
+const y = d3.scaleLinear().range([graphHeight, 0]);
 
-const color = d3.scaleOrdinal(d3["schemeSet3"]);
+// axes groups
 
-// legend setup
-
-const legendGroup = svg
+const xAxisGroup = graph
   .append("g")
-  .attr("transform", `translate(${dims.width + 40},10)`);
+  .attr("class", "x-axis")
+  .attr("transform", `translate(0,${graphHeight})`);
 
-const legend = d3.legendColor().shape("circle").shapePadding(10).scale(color);
+const yAxisGroup = graph.append("g").attr("class", "y-axis");
 
-// const tip = d3
-//   .tip()
-//   .attr("class", "tip card")
-//   .html((d) => {
-//     let content = `<div class="name" >${d.data.name}</div>`;
-//     content += `<div class="cost" >${d.data.cost}</div>`;
-//     content += `<div class="delete">Click slice to delte</div>`;
-//     return content;
-//   });
-//
-// graph.call(tip);
+// d3 line path generator
 
-// update function
+const line = d3
+  .line()
+  .x(function (d) {
+    return x(new Date(d.date));
+  })
+  .y(function (d) {
+    return y(d.distance);
+  });
+
+// line path elements
+const path = graph.append("path");
+
+// create dotted line group and append that to graph
+
+const dottedLines = graph.append("g").style("opacity", 0);
+
+// create x dotted line and append to dotted line group
+const xDottedLine = dottedLines
+  .append("line")
+  .attr("stroke-width", 1)
+  .attr("stroke-dasharray", 4)
+  .attr("stroke", "#aaa");
+
+// create y dotted line and append to dotted line group
+
+const yDottedLine = dottedLines
+  .append("line")
+  .attr("stroke-width", 1)
+  .attr("stroke-dasharray", 4)
+  .attr("stroke", "#aaa");
+
 const update = (data) => {
-  // update color scale domain
-  color.domain(data.map((d) => d.name));
+  data = data.filter((item) => item.activity === activity);
 
-  //update and call legend
-  legendGroup.call(legend);
-  legendGroup.selectAll("text").attr("fill", "white");
+  // sort data based on date object
 
-  //join enhanced(pie) data to path elements
-  const paths = graph.selectAll("path").data(pie(data));
+  data.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  // handle exit selection
-  paths
-    .exit()
-    .transition()
-    .duration(1500)
-    .attrTween("d", arcTweenExit)
-    .remove();
+  // set scale domains
 
-  // handle the current DOM path updates
-  paths
-    .attr("d", arcPath)
-    .transition()
-    .duration(1500)
-    .attrTween("d", arcTweenUpdate);
+  x.domain(d3.extent(data, (d) => new Date(d.date)));
 
-  paths
+  y.domain([0, d3.max(data, (d) => d.distance)]);
+
+  // update path data
+  path
+    .data([data])
+    .attr("fill", "none")
+    .attr("stroke", "#00bfa5")
+    .attr("stroke-width", 2)
+    .attr("d", line);
+
+  // create circles for objects
+
+  const circles = graph.selectAll("circle").data(data);
+
+  //update current points
+
+  circles
+    .attr("cx", (d) => x(new Date(d.date)))
+    .attr("cy", (d) => y(d.distance));
+
+  //remove unwanted points
+  circles.exit().remove();
+
+  // add new points
+  circles
     .enter()
-    .append("path")
-    .attr("class", "arc")
-    .attr("stroke", "#fff")
-    .attr("stroke-width", 3)
-    .attr("fill", (d) => color(d.data.name))
-    .each(function (d) {
-      this._current = d;
-    })
-    .transition()
-    .duration(1500)
-    .attrTween("d", arcTweenEnter);
+    .append("circle")
+    .attr("r", 4)
+    .attr("cx", (d) => x(new Date(d.date)))
+    .attr("cy", (d) => y(d.distance))
+    .attr("fill", "#ccc");
 
-  // add events
   graph
-    .selectAll("path")
+    .selectAll("circle")
     .on("mouseover", (e, d) => {
-      handleMouseOver(e, d);
+      d3.select(e.currentTarget)
+        .transition()
+        .duration(100)
+        .attr("r", 8)
+        .attr("fill", "#fff");
+      // set x dotted line coords (x1,x2,y1,y2)
+      xDottedLine
+        .attr("x1", x(new Date(d.date)))
+        .attr("x2", x(new Date(d.date)))
+        .attr("y1", graphHeight)
+        .attr("y2", y(d.distance));
+
+      // set y dotted line coords (x1,x2,y1,y2)
+      yDottedLine
+        .attr("x1", 0)
+        .attr("x2", x(new Date(d.date)))
+        .attr("y1", y(d.distance))
+        .attr("y2", y(d.distance));
+
+      // show the dotted line group (.style,opacity)
+      dottedLines.style("opacity", 1);
     })
-    .on("mouseout", handleMouseOut)
-    .on("click", handleClick);
+    .on("mouseleave", (e, d) => {
+      d3.select(e.currentTarget)
+        .transition()
+        .duration(100)
+        .attr("r", 4)
+        .attr("fill", "#ccc");
+
+      // hide dotted line group (.style,opacity)
+      dottedLines.style("opacity", 0);
+    });
+
+  // create axes
+
+  const xAxis = d3.axisBottom(x).ticks(4).tickFormat(d3.timeFormat("%b %d"));
+  const yAxis = d3
+    .axisLeft(y)
+    .ticks(4)
+    .tickFormat((d) => d + "m");
+
+  // call axes
+  xAxisGroup.call(xAxis);
+  yAxisGroup.call(yAxis);
+
+  // rotate axis text
+
+  xAxisGroup
+    .selectAll("text")
+    .attr("transform", "rotate(-40)")
+    .attr("text-anchor", "end");
 };
 
-// data array and firestore
+// data and firestore
 
 var data = [];
 
-db.collection("expenses").onSnapshot((res) => {
+db.collection("activities").onSnapshot((res) => {
   res.docChanges().forEach((change) => {
     const doc = { ...change.doc.data(), id: change.doc.id };
-
     switch (change.type) {
       case "added":
         data.push(doc);
@@ -120,56 +233,3 @@ db.collection("expenses").onSnapshot((res) => {
 
   update(data);
 });
-
-// TWEENS
-const arcTweenEnter = (d) => {
-  let i = d3.interpolate(d.endAngle, d.startAngle);
-
-  return function (t) {
-    d.startAngle = i(t);
-    return arcPath(d);
-  };
-};
-
-const arcTweenExit = (d) => {
-  let i = d3.interpolate(d.startAngle, d.endAngle);
-
-  return function (t) {
-    d.startAngle = i(t);
-    return arcPath(d);
-  };
-};
-
-// use function keyword to allow use of this
-
-function arcTweenUpdate(d) {
-  // interpolate between the two objects
-  let i = d3.interpolate(this._current, d);
-
-  // update the current prop with new updated data
-  this._current = d;
-
-  return function (t) {
-    return arcPath(i(t));
-  };
-}
-
-// event handlers
-const handleMouseOver = (e, d) => {
-  d3.select(e.currentTarget)
-    .transition("changeSliceFill")
-    .duration(300)
-    .attr("fill", "#fff");
-};
-
-const handleMouseOut = (e, d) => {
-  d3.select(e.currentTarget)
-    .transition("changeSliceFill")
-    .duration(300)
-    .attr("fill", color(d.data.name));
-};
-
-const handleClick = (e, d) => {
-  const id = d.data.id;
-  db.collection("expenses").doc(id).delete();
-};
